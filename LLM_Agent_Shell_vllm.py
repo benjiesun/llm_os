@@ -18,7 +18,7 @@ model = AutoModelForCausalLM.from_pretrained(
 SYSTEM_PROMPT = """
 你是一个智能Shell代理(LLM Agent Shell)。
 你具备以下能力：
-1. 理解用户自然语言请求；
+1. 理解用户自然语言请求；   
 2. 判断是否需要执行Linux命令；
 3. 当需要执行时，直接输出命令；
 4. 当用户只是提问时，直接回答；

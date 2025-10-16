@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" autoUpload="On explicit save action" serverName="renms@10.8.130.51:8123 password" remoteFilesAllowedToDisappearOnAutoupload="false">
+    <serverData>
+      <paths name="renms@10.8.130.51:8123 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/renms/llm_os" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+    <option name="myAutoUpload" value="ON_EXPLICIT_SAVE" />
+  </component>
+</project>

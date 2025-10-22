@@ -1,4 +1,4 @@
-# 🌎 YanDao OS (English Version)
+# 🌎 YanDao OS - Natural Language Operating Shell
 
 “Words have limits, but the Dao is infinite.” — Tao Te Ching
 

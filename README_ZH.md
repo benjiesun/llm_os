@@ -32,7 +32,8 @@ touch os.py
 ## 🧩 项目结构
 yandao/
 ├── main.py # 主程序入口
-├── llm_agent.py # 模型接口
+├── llm_agent.py # 大模型api接口
+├── llm_vllm.py # 本地大模型借口
 ├── command_executor.py # 命令执行与安全校验
 ├── prompts/ # 系统提示词模板
 └── history/ # 操作记录文件

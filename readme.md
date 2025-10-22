@@ -36,6 +36,7 @@ In this way, language becomes command, and command follows the Dao.
 yandao/
 ├── main.py              # main entry point
 ├── llm_agent.py         # language model interface
+├── llm_vllm.py         # local llm
 ├── command_executor.py  # command execution & safety checks
 ├── prompts/             # system prompt templates
 └── history/             # operation logs

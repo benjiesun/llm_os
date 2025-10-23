@@ -36,6 +36,10 @@ In this way, language becomes command, and command follows the Dao.
 
 🎙️ Voice-to-text input — supports real-time speech recognition for natural language command input.
 
+🔗 Persistent SSH remote execution — supports secure SSH long-connection mode for remote terminal control.
+
+🧩 Dynamic blacklist configuration — dangerous commands are now file-managed and loaded by system type.
+
 ## 🧩 Project Structure
 ```text
 yandao/

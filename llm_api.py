@@ -4,11 +4,11 @@
 llm_api.py
 兼容 OpenAI / vLLM / 其他聚合服务的在线调用模式
 """
-import platform
 import requests
 import os
-import json
 from dotenv import load_dotenv
+from utils.prompt_loader import load_system_prompt
+
 
 # ========= 配置区域 =========
 load_dotenv()
@@ -19,45 +19,13 @@ API_TIMEOUT = 60                                                     # 请求超
 
 
 
-# 检测当前系统
-SYSTEM = platform.system()
-# 根据系统动态调整提示
-if SYSTEM == "Windows":
-    SYSTEM_PROMPT = """你是一个自然语言操作系统助手，当前运行在 Windows 系统。
-
-你的任务：
-1. 理解用户的自然语言；
-2. 输出你要执行的任务说明；
-3. 最后给出可以直接执行的 Windows CMD 命令。
-
-请严格按以下格式输出：
-我将为你做：<简短任务说明>。
-对应的命令是：
-<命令>
-
-不要输出多余的解释、上下文或代码。
-"""
-else:
-    SYSTEM_PROMPT = """你是一个自然语言操作系统助手，当前运行在 Linux 系统。
-
-你的任务：
-1. 理解用户的自然语言；
-2. 输出你要执行的任务说明；
-3. 最后给出可以直接执行的 Linux 命令。
-
-请严格按以下格式输出：
-我将为你做：<简短任务说明>。
-对应的命令是：
-<命令>
-
-不要输出多余的解释、上下文或代码。
-"""
-
 # ========= 核心函数 =========
-def get_command_from_api(prompt: str, max_new_tokens=512, temperature=0.7) -> str:
+def get_command_from_api(prompt: str,system_type: str = None, max_new_tokens=512, temperature=0.7) -> str:
     """
     调用兼容 OpenAI Chat Completions API 的远程模型。
     """
+    SYSTEM_PROMPT = load_system_prompt(system_type)
+
     url = f"{API_BASE}/chat/completions"
     headers = {
         "Content-Type": "application/json",

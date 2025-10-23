@@ -1,0 +1,17 @@
+format
+del
+erase
+rmdir
+rd
+shutdown
+logoff
+exit /b
+taskkill /f
+net user
+reg delete
+sc delete
+cipher /w
+powershell remove-item
+remove-item
+stop-computer
+restart-computer

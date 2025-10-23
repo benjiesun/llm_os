@@ -1,10 +1,13 @@
+import platform
 import re
 from command_executor import execute_command
-from voice_input import record_once
+
+from ssh_executor import connect_ssh, execute_remote_command, close_ssh
 # ========== 选择使用模式 ==========
 # 可选："local"（本地模型）或 "api"（远程模型）
 PROVIDER = "api"     # local / api
 USE_VOICE = False     # 🎤 是否启用语音输入
+USE_SSH = False        # 🌐 是否通过 SSH 在远程执行命令
 
 def extract_command_from_response(text: str) -> str:
     """
@@ -34,11 +37,18 @@ def extract_command_from_response(text: str) -> str:
     return ""
 
 def main():
-    print(f"🪶 言道 OS | 以言通道  —— 当前模式：{'远程 API 模式 🌐' if PROVIDER == 'api' else '本地模型模式 💻'}")
+    exec_mode = "远程 SSH 模式 🔗" if USE_SSH else "本地终端模式 💻"
+    provider_mode = "远程 API 模型 🌐" if PROVIDER == "api" else "本地模型 💾"
+    print(f"🪶 言道 OS | 以言通道 —— 当前模式：{provider_mode} | {exec_mode}")
+    if USE_SSH:
+        ssh, system_type = connect_ssh()
+    else:
+        system_type = platform.system()
     print("输入自然语言指令（输入 exit 退出）")
 
     while True:
         if USE_VOICE:
+            from voice_input import record_once
             print("\n🎧 按 Enter 开始录音，或输入文字指令：")
             choice = input("> ").strip()
             if choice.lower() in ["exit", "quit"]:
@@ -61,10 +71,10 @@ def main():
         # 调用模型
         if PROVIDER == "local":
             from llm_vllm import get_command_from_llm
-            response = get_command_from_llm(user_input)
+            response = get_command_from_llm(user_input, system_type)
         elif PROVIDER == "api":
             from llm_api import get_command_from_api
-            response = get_command_from_api(user_input)
+            response = get_command_from_api(user_input, system_type)
         else:
             print("❌ 未知的 PROVIDER，请设置为 'local' 或 'api'")
             continue
@@ -81,13 +91,21 @@ def main():
 
         # 确认执行
         confirm = input(f"\n是否执行以下命令？\n👉 {command}\n(y/n): ").strip().lower()
-        if confirm == "y":
-            print("\n🪶 正在执行...\n")
-            result = execute_command(command)
-            print(result)
-            print("─" * 60)
-        else:
+        if confirm != "y":
             print("🌀 已取消执行。")
+            continue
+
+        print("\n🪶 正在执行...\n")
+
+        #执行命令（本地 / 远程）
+        if USE_SSH:
+            from ssh_executor import execute_remote_command
+            result = execute_remote_command(command,system_type)
+        else:
+            result = execute_command(command)
+
+        print(result)
+        print("─" * 60)
 
 if __name__ == "__main__":
     main()

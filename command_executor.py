@@ -8,27 +8,10 @@ executor.py
 import subprocess
 import shlex
 import platform
+from utils.blacklist_loader import load_blacklist
 
 SYSTEM = platform.system()   # 'Windows', 'Linux', or 'Darwin'
-
-# 黑名单关键字（包含一些常见危险形式）
-if SYSTEM == "Windows":
-    # ⚠️ Windows 下的危险命令
-    DANGEROUS_KEYWORDS = [
-        "format", "del ", "erase ", "rmdir", "rd ",
-        "shutdown", "logoff", "exit /b", "taskkill /f",
-        "net user", "reg delete", "sc delete",
-        "cipher /w", "powershell Remove-Item",
-        "Remove-Item", "Stop-Computer", "Restart-Computer"
-    ]
-else:
-    # ⚠️ Linux / macOS 下的危险命令
-    DANGEROUS_KEYWORDS = [
-        "rm ", "rm -", "reboot", "shutdown", "init 0",
-        "mkfs", "dd ", ":(){:|:&};:", "mv /", "chmod 777 /",
-        "chown root", "userdel", "poweroff", "halt", "shutdown -h"
-    ]
-
+DANGEROUS_KEYWORDS = load_blacklist(SYSTEM)
 # 防止多个命令串联执行（简单策略）
 DANGEROUS_INJECTION_PATTERNS = [";", "&&", "||", "|", "`", "$(", ">${", "> /dev", "2>&1"]
 

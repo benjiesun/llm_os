@@ -1,6 +1,10 @@
 import re
-from llm_vllm import get_command_from_llm
 from command_executor import execute_command
+from voice_input import record_once
+# ========== 选择使用模式 ==========
+# 可选："local"（本地模型）或 "api"（远程模型）
+PROVIDER = "api"     # local / api
+USE_VOICE = False     # 🎤 是否启用语音输入
 
 def extract_command_from_response(text: str) -> str:
     """
@@ -30,17 +34,41 @@ def extract_command_from_response(text: str) -> str:
     return ""
 
 def main():
-    print("🪶 言道 OS | 以言通道")
-    print("输入自然语言指令（输入 exit 退出）\n")
+    print(f"🪶 言道 OS | 以言通道  —— 当前模式：{'远程 API 模式 🌐' if PROVIDER == 'api' else '本地模型模式 💻'}")
+    print("输入自然语言指令（输入 exit 退出）")
 
     while True:
-        user_input = input("🧠> ").strip()
-        if user_input.lower() in ["exit", "quit"]:
-            print("\n🍃 再会，道自无穷。")
-            break
+        if USE_VOICE:
+            print("\n🎧 按 Enter 开始录音，或输入文字指令：")
+            choice = input("> ").strip()
+            if choice.lower() in ["exit", "quit"]:
+                print("\n🍃 再会，道自无穷。")
+                break
+
+            if choice == "":
+                user_input = record_once()
+                if not user_input:
+                    continue
+            else:
+                user_input = choice
+        else:
+            user_input = input("🧠> ").strip()
+            if user_input.lower() in ["exit", "quit"]:
+                print("\n🍃 再会，道自无穷。")
+                break
+
 
         # 调用模型
-        response = get_command_from_llm(user_input)
+        if PROVIDER == "local":
+            from llm_vllm import get_command_from_llm
+            response = get_command_from_llm(user_input)
+        elif PROVIDER == "api":
+            from llm_api import get_command_from_api
+            response = get_command_from_api(user_input)
+        else:
+            print("❌ 未知的 PROVIDER，请设置为 'local' 或 'api'")
+            continue
+
         print("\n🤖 模型回答：")
         print(response)
         print("─" * 60)

@@ -1,0 +1,31 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+
+# === IDE ===
+.vscode/
+.idea/
+
+# === 系统文件 ===
+.DS_Store
+Thumbs.db
+
+# === 环境变量 & 密钥 ===
+.env
+*.key
+*.pem
+secrets.json
+config.json
+credentials/
+token.txt
+
+# === 临时文件 ===
+*.log
+*.dat
+*.tmp

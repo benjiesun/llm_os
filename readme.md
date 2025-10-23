@@ -32,6 +32,10 @@ In this way, language becomes command, and command follows the Dao.
 
 🌐 Model flexibility — compatible with both local and remote models (Qwen, DeepSeek, OpenAI, etc.)
 
+💻 Cross-platform adaptation — automatically detects system type and generates platform-appropriate commands (Linux shell or Windows PowerShell / CMD).
+
+🎙️ Voice-to-text input — supports real-time speech recognition for natural language command input.
+
 ## 🧩 Project Structure
 ```text
 yandao/

@@ -70,9 +70,3 @@ where thought becomes command, and words shape reality.
 ## 📜 License
 
 MIT License © 2025 YanDao Project
-
-
----
-
-是否希望我帮你生成一个带有“道家美学风格”的 ASCII 启动画面（例如用户启动命令行后显示「言道 OS | 以言通道」的那种）？  
-这样可以让项目启动时更有哲学感与辨识度。

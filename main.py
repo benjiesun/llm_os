@@ -1,12 +1,5 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-main.py
-言道 OS 主程序入口（使用改进的 llm_agent 与 executor）。
-"""
-
 import re
-from llm_agent import get_command_from_llm
+from llm_vllm import get_command_from_llm
 from command_executor import execute_command
 
 def extract_command_from_response(text: str) -> str:

@@ -7,13 +7,27 @@ executor.py
 
 import subprocess
 import shlex
+import platform
+
+SYSTEM = platform.system()   # 'Windows', 'Linux', or 'Darwin'
 
 # 黑名单关键字（包含一些常见危险形式）
-DANGEROUS_KEYWORDS = [
-    "rm ", "rm -", "reboot", "shutdown", "init 0",
-    "mkfs", "dd ", ":(){:|:&};:", "mv /", "chmod 777 /",
-    "chown root", "userdel", "poweroff", "halt", "shutdown -h"
-]
+if SYSTEM == "Windows":
+    # ⚠️ Windows 下的危险命令
+    DANGEROUS_KEYWORDS = [
+        "format", "del ", "erase ", "rmdir", "rd ",
+        "shutdown", "logoff", "exit /b", "taskkill /f",
+        "net user", "reg delete", "sc delete",
+        "cipher /w", "powershell Remove-Item",
+        "Remove-Item", "Stop-Computer", "Restart-Computer"
+    ]
+else:
+    # ⚠️ Linux / macOS 下的危险命令
+    DANGEROUS_KEYWORDS = [
+        "rm ", "rm -", "reboot", "shutdown", "init 0",
+        "mkfs", "dd ", ":(){:|:&};:", "mv /", "chmod 777 /",
+        "chown root", "userdel", "poweroff", "halt", "shutdown -h"
+    ]
 
 # 防止多个命令串联执行（简单策略）
 DANGEROUS_INJECTION_PATTERNS = [";", "&&", "||", "|", "`", "$(", ">${", "> /dev", "2>&1"]
@@ -34,12 +48,12 @@ def is_safe_command(command: str) -> bool:
 
 
 def execute_command(command: str, timeout: int = 15) -> str:
-    """安全执行命令并返回执行结果字符串"""
+    """安全执行命令并返回执行结果字符串（最小改动版：遇到 WinError 2 时回退到 shell=True）"""
     if not is_safe_command(command):
         return f"⚠️ 检测到危险或不安全的命令：{command}\n已阻止执行。"
 
     try:
-        # shlex.split 会把命令拆为列表（不经过 shell），降低注入风险
+        # 尝试用非 shell 的方式执行（更安全）
         cmd_list = shlex.split(command)
         result = subprocess.run(
             cmd_list,
@@ -53,5 +67,25 @@ def execute_command(command: str, timeout: int = 15) -> str:
             return out or "✅ 命令执行成功，无输出。"
         else:
             return f"❌ 命令执行出错（returncode={result.returncode}）：\n{result.stderr.strip()}"
+    except FileNotFoundError:
+        # Windows 常见：内建命令（如 dir）不是可执行文件，会抛 FileNotFoundError
+        # 在确认已通过 is_safe_command 后，回退一次使用 shell=True（谨慎回退）
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=timeout
+            )
+            if result.returncode == 0:
+                out = result.stdout.strip()
+                return out or "✅ 命令执行成功（shell 模式），无输出。"
+            else:
+                return f"❌ Shell 执行出错（returncode={result.returncode}）：\n{result.stderr.strip()}"
+        except Exception as e:
+            return f"❌ 回退到 shell 模式执行失败：{e}"
     except Exception as e:
         return f"❌ 命令执行失败：{e}"
+

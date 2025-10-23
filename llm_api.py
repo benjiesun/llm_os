@@ -4,7 +4,7 @@
 llm_api.py
 兼容 OpenAI / vLLM / 其他聚合服务的在线调用模式
 """
-
+import platform
 import requests
 import os
 import json
@@ -19,9 +19,26 @@ API_TIMEOUT = 60                                                     # 请求超
 
 
 
+# 检测当前系统
+SYSTEM = platform.system()
+# 根据系统动态调整提示
+if SYSTEM == "Windows":
+    SYSTEM_PROMPT = """你是一个自然语言操作系统助手，当前运行在 Windows 系统。
 
+你的任务：
+1. 理解用户的自然语言；
+2. 输出你要执行的任务说明；
+3. 最后给出可以直接执行的 Windows CMD 命令。
 
-SYSTEM_PROMPT = """你是一个自然语言操作系统助手。
+请严格按以下格式输出：
+我将为你做：<简短任务说明>。
+对应的命令是：
+<命令>
+
+不要输出多余的解释、上下文或代码。
+"""
+else:
+    SYSTEM_PROMPT = """你是一个自然语言操作系统助手，当前运行在 Linux 系统。
 
 你的任务：
 1. 理解用户的自然语言；

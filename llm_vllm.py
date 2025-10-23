@@ -4,7 +4,7 @@
 llm_agent.py
 言道 OS — 自然语言命令解释模块（双卡版）
 """
-
+import platform
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import os
@@ -32,7 +32,26 @@ model = AutoModelForCausalLM.from_pretrained(
 model.eval()
 
 # 🔹 强化 Prompt 规范，让模型输出更可控
-SYSTEM_PROMPT = """你是一个自然语言操作系统助手。
+# 检测当前系统
+SYSTEM = platform.system()
+# 根据系统动态调整提示
+if SYSTEM == "Windows":
+    SYSTEM_PROMPT = """你是一个自然语言操作系统助手，当前运行在 Windows 系统。
+
+你的任务：
+1. 理解用户的自然语言；
+2. 输出你要执行的任务说明；
+3. 最后给出可以直接执行的 Windows CMD 命令。
+
+请严格按以下格式输出：
+我将为你做：<简短任务说明>。
+对应的命令是：
+<命令>
+
+不要输出多余的解释、上下文或代码。
+"""
+else:
+    SYSTEM_PROMPT = """你是一个自然语言操作系统助手，当前运行在 Linux 系统。
 
 你的任务：
 1. 理解用户的自然语言；

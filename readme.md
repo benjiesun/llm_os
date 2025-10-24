@@ -63,6 +63,8 @@ In this way, language becomes command, and command follows the Dao.
 
 🧩 Dynamic blacklist configuration — dangerous commands are now file-managed and loaded by system type.
 
+🪟 Interactive GUI interface — provides an intuitive visual terminal and model control panel for easier operation.
+
 ## 🧩 Project Structure
 ```text
 YanDao-OS/

@@ -32,7 +32,7 @@ def load_system_prompt(system_type: str = None) -> str:
 
     try:
         with open(prompt_file, "r", encoding="utf-8") as f:
-            print("prompt_file:", prompt_file)
+            # print("prompt_file:", prompt_file)
             return f.read().strip()
     except FileNotFoundError:
         return "你是一个自然语言操作助手。请输出相应的系统命令。"

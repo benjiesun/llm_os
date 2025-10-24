@@ -5,8 +5,25 @@
 **言道 OS** 是一款融合 **大语言模型（LLM）** 与 **Linux 命令行** 的新型自然语言操作系统。  
 它让你能够**用自然语言直接与系统对话**，完成各种操作命令。
 
----
+<div align="center">
 
+*[English](README.md) | [中文文档]*  
+<br>
+
+[![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/benjiesun/YanDao-OS)
+</div>
+
+---
+## 📋 目录
+
+- [🌌 Overview | 概述](#overview)
+- [✨ Features | 特性](#features)
+- [🧩 Project Structure | 项目结构](#project-structure)
+- [🚀 Quick Start | 快速开始](#quick-start)
+- [💭 Philosophy | 哲学](#philosophy)
+- [📜 License | 许可](#license)
+
+---
 ## 🌌 项目简介
 
 在言道 OS 中，你不再需要记住复杂的命令行语法。  
@@ -26,22 +43,37 @@ touch os.py
 - 🔒 **安全确认机制**：执行前提示用户确认，防止误操作。  
 - 📜 **操作历史记录**：保存用户的自然语言输入与命令结果。  
 - 🌐 **多模型兼容**：支持本地 LLM（如 Qwen、DeepSeek）与远程 API（如 OpenAI GPT）。
-- 💻 跨平台适配 — 自动检测系统类型并生成适合平台的命令（Linux shell 或 Windows PowerShell / CMD）。
-- 🎙️ 语音转文本输入 — 支持自然语言命令输入的实时语音识别。
-- 🔗 持久 SSH 远程执行 — 支持安全 SSH 长连接模式，用于远程终端控制。
-- 🧩 动态黑名单配置 — 危险命令现在由文件管理并按系统类型加载。
+- 💻 **跨平台适配** — 自动检测系统类型并生成适合平台的命令（Linux或 Windows）。
+- 🎙️ **语音转文本输入** — 支持自然语言命令输入的实时语音识别。
+- 🔗 **持久 SSH 远程执行** — 支持安全 SSH 长连接模式，用于远程终端控制。
+- 🧩 **动态黑名单配置** — 危险命令现在由文件管理并按系统类型加载。
 
 ---
 
 ## 🧩 项目结构
 ```text
-yandao/
-├── main.py # 主程序入口
-├── llm_agent.py # 大模型api接口
-├── llm_vllm.py # 本地大模型借口
-├── command_executor.py # 命令执行与安全校验
-├── prompts/ # 系统提示词模板
-└── history/ # 操作记录文件
+YanDao-OS/
+├── main.py                     # CLI entry point | CLI入口
+├── gui_main.py                 # GUI application | GUI应用
+├── llm_api.py                  # Remote LLM interface | 远程LLM接口
+├── llm_vllm.py                 # Local LLM interface | 本地LLM接口
+├── command_executor.py         # Local command execution | 本地命令执行
+├── ssh_executor.py             # Remote SSH execution | 远程SSH执行
+├── voice_input.py              # Voice recognition | 语音识别
+├── prompts.json                # Prompt configurations | 提示词配置
+├── history.txt                 # Command history | 命令历史
+├── utils/                      # Utility modules | 工具模块
+│   ├── blacklist_loader.py     # Security blacklists | 安全黑名单
+│   ├── prompt_loader.py        # Prompt management | 提示词管理
+│   ├── dangerous_keys/         # Blacklist files | 黑名单文件
+│   │   ├── blacklist_linux.txt
+│   │   └── blacklist_windows.txt
+│   └── prompts/                # System prompts | 系统提示词
+│       ├── system_linux.txt
+│       └── system_windows.txt
+├── README.md                   # English documentation | 英文文档
+├── README_ZH.md                # Chinese documentation | 中文文档
+└── requirements.txt            # Dependencies | 依赖项
 ```
 ## 🚀 快速开始
 
@@ -49,7 +81,11 @@ yandao/
 git clone https://github.com/benjiesun/YanDao/YanDao-os.git
 cd yandao-os
 pip install -r requirements.txt
+# CLI Mode
 python main.py
+
+# GUI Mode
+python gui_main.py
 ``` 
 然后输入：
 

@@ -148,7 +148,8 @@ def _run_local_model_inference(full_prompt: str, max_new_tokens=256, temperature
             temperature=temperature,
             top_p=0.9,
             do_sample=True,
-            eos_token_id=_tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.eos_token_id,
         )
     text = _tokenizer.decode(outputs[0], skip_special_tokens=True)
     # 只返回助手回答部分（按 prompt 中的分隔符）
@@ -156,31 +157,38 @@ def _run_local_model_inference(full_prompt: str, max_new_tokens=256, temperature
         return text.split("助手：", 1)[-1].strip()
     return text.strip()
 
+messages = []
+
+def init_vllm_prompt(system_type: str = None):
+    """加载系统提示词"""
+    SYSTEM_PROMPT = load_system_prompt(system_type)
+    return [{"role": "system", "content": SYSTEM_PROMPT}]
+    
 def get_command_from_llm(prompt: str, system_type: str = None, local_addr: str = None, max_new_tokens: int = 256, temperature: float = 0.6) -> str:
-    """
-    统一接口：若 local_addr 是 HTTP 地址则走 HTTP 推理；否则使用本地 HF 模型（延迟加载）。
-    返回：字符串生成结果或以 '❌' 开头的错误信息。
-    """
-    try:
-        SYSTEM_PROMPT = load_system_prompt(system_type)
-        full_prompt = f"{SYSTEM_PROMPT}\n用户：{prompt}\n助手："
+    """调用本地模型，根据自然语言返回解释 + 命令"""
+    global messages
+    if not messages:
+        messages = init_vllm_prompt(system_type)
 
-        if local_addr and _is_http_addr(local_addr):
-            # 调用本地/远程 HTTP 推理服务
-            try:
-                return _call_remote_inference_http(local_addr, full_prompt, max_new_tokens, temperature, timeout=_DEFAULT_HTTP_TIMEOUT)
-            except Exception as e:
-                return f"❌ 本地推理服务调用失败: {e}"
+    messages.append({"role": "user", "content": prompt})
+    text = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+    inputs = tokenizer(text, return_tensors="pt").to(device)
 
-        # 否则走本地 HF 模型（延迟加载）
-        try:
-            return _run_local_model_inference(full_prompt, max_new_tokens, temperature)
-        except Exception as e:
-            return f"❌ 本地模型推理失败: {e}"
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=256,
+            temperature=0.6,
+            top_p=0.9,
+            do_sample=True,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.eos_token_id,
+        )
 
-    except Exception as e:
-        return f"❌ get_command_from_llm 异常: {e}"
+    result = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    reply = re.sub(r"^.*?assistant", "", result, flags=re.DOTALL)
+    reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.DOTALL).strip()
 
-if __name__ == "__main__":
-    # 测试（如果你本地有模型会实际加载，谨慎运行）
-    print(get_command_from_llm("列出当前目录并说明文件类型", "Linux", local_addr=None))
+    return reply

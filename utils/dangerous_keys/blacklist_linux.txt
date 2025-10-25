@@ -1,5 +1,4 @@
  rm
- rm -
  reboot
  shutdown
  init 0

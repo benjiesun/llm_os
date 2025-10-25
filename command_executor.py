@@ -11,6 +11,7 @@ import platform
 from utils.blacklist_loader import load_blacklist
 
 SYSTEM = platform.system()   # 'Windows', 'Linux', or 'Darwin'
+# print(f"🖥️ 当前操作系统：{SYSTEM}")
 DANGEROUS_KEYWORDS = load_blacklist(SYSTEM)
 DANGEROUS_INJECTION_PATTERNS = [';', '&&', '||', '`', '$(', '${', '|&']
 

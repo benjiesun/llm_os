@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-llm_agent.py
+llm_vllm.py
 言道 OS — 自然语言命令解释模块（双卡版）
 """
 import torch

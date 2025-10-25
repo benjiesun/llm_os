@@ -17,14 +17,24 @@ API_KEY  = os.getenv("API_KEY", "")                                     # 在本
 API_MODEL = os.getenv("API_MODEL", "deepseek-chat")                    # 模型名称，如 "deepseek-chat"
 API_TIMEOUT = 60                                                     # 请求超时秒数
 
+messages = []
 
+def init_api_prompt(system_type: str = None):
+    """加载系统提示词"""
+    SYSTEM_PROMPT = load_system_prompt(system_type)
+    return [{"role": "system", "content": SYSTEM_PROMPT}]
 
 # ========= 核心函数 =========
 def get_command_from_api(prompt: str,system_type: str = None, max_new_tokens=512, temperature=0.7) -> str:
     """
     调用兼容 OpenAI Chat Completions API 的远程模型。
     """
-    SYSTEM_PROMPT = load_system_prompt(system_type)
+    global messages
+    if not messages:
+        messages = init_vllm_prompt(system_type)
+    
+    # 将用户输入加入上下文
+    messages.append({"role": "user", "content": prompt})
 
     url = f"{API_BASE}/chat/completions"
     headers = {
@@ -34,10 +44,7 @@ def get_command_from_api(prompt: str,system_type: str = None, max_new_tokens=512
 
     payload = {
         "model": API_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ],
+        "messages": messages,
         "temperature": temperature,
         "max_tokens": max_new_tokens,
         "stream": False

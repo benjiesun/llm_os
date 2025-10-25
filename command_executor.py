@@ -12,8 +12,7 @@ from utils.blacklist_loader import load_blacklist
 
 SYSTEM = platform.system()   # 'Windows', 'Linux', or 'Darwin'
 DANGEROUS_KEYWORDS = load_blacklist(SYSTEM)
-# 防止多个命令串联执行（简单策略）
-DANGEROUS_INJECTION_PATTERNS = [";", "&&", "||", "|", "`", "$(", ">${", "> /dev", "2>&1"]
+DANGEROUS_INJECTION_PATTERNS = [';', '&&', '||', '`', '$(', '${', '|&']
 
 def is_safe_command(command: str) -> bool:
     """判断命令是否安全（简单黑名单 + 注入符号检测）"""
@@ -71,4 +70,3 @@ def execute_command(command: str, timeout: int = 15) -> str:
             return f"❌ 回退到 shell 模式执行失败：{e}"
     except Exception as e:
         return f"❌ 命令执行失败：{e}"
-

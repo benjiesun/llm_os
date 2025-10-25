@@ -4,44 +4,48 @@
 llm_agent.py
 言道 OS — 自然语言命令解释模块（双卡版）
 """
+import os
+import re
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
-import os
 from utils.prompt_loader import load_system_prompt
 
-
-# ✅ 设置可见 GPU（0 和 1）
+# 设置可见 GPU（0 和 1）
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
-MODEL_PATH = "/data/SharedFile/deepseek/DeepSeek-R1-Distill-Qwen-32B"
+MODEL_PATH = "/data/SharedFile/Qwen/Qwen3-8B"
 
 print(f"🚀 正在加载本地模型：{MODEL_PATH}")
 
-# 自动检测 CUDA
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# 初始化分词器和模型
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
-
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_PATH,
     torch_dtype=torch.float16,
-    device_map="balanced",   # ✅ 让模型自动平衡分布到两张 GPU
+    device_map="balanced",
     trust_remote_code=True
 )
-
 model.eval()
 
-def get_command_from_llm(prompt: str,system_type: str = None,) -> str:
-    """
-    调用本地 DeepSeek 模型，根据自然语言返回解释 + 命令。
-    """
+messages = []
 
-    # 根据系统类型加载prompt
+def init_vllm_prompt(system_type: str = None):
+    """加载系统提示词"""
     SYSTEM_PROMPT = load_system_prompt(system_type)
+    return [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    full_prompt = f"{SYSTEM_PROMPT}\n用户：{prompt}\n助手："
-    inputs = tokenizer(full_prompt, return_tensors="pt").to(device)
+def get_command_from_llm(prompt: str, system_type: str = None) -> str:
+    """调用本地模型，根据自然语言返回解释 + 命令"""
+    global messages
+    if not messages:
+        messages = init_vllm_prompt(system_type)
+
+    messages.append({"role": "user", "content": prompt})
+    text = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+    inputs = tokenizer(text, return_tensors="pt").to(device)
 
     with torch.no_grad():
         outputs = model.generate(
@@ -51,11 +55,11 @@ def get_command_from_llm(prompt: str,system_type: str = None,) -> str:
             top_p=0.9,
             do_sample=True,
             eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.eos_token_id,
         )
 
     result = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    reply = re.sub(r"^.*?assistant", "", result, flags=re.DOTALL)
+    reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.DOTALL).strip()
 
-    # 提取助手回答部分
-    if "助手：" in result:
-        result = result.split("助手：", 1)[-1].strip()
-    return result
+    return reply

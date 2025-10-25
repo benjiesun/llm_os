@@ -2,9 +2,10 @@
 import sys
 import re
 import subprocess
+import threading
 from functools import partial
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject,QTimer
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QRadioButton, QButtonGroup,
@@ -181,7 +182,7 @@ class SSHDialog(QDialog):
 
         self.os_combo = QComboBox()
         self.os_combo.addItems(["Linux", "Windows", "Unix"])
-
+        print(f"test1: {self.os_combo.currentText()}")
         form.addRow("主机 (host):", self.host_input)
         form.addRow("端口 (port):", self.port_input)
         form.addRow("用户名:", self.user_input)
@@ -220,6 +221,7 @@ class MainWindow(QMainWindow):
 
         self.ssh_client = None
         self.remote_system_type = None
+        self.is_recording = False
 
         # 顶部设置区
         top_widget = QWidget()
@@ -289,6 +291,7 @@ class MainWindow(QMainWindow):
         sys_layout.addWidget(QLabel("本机 / 指定系统类型（覆盖）:"))
         self.sys_combo = QComboBox()
         self.sys_combo.addItems(["Auto (detect)", "Linux", "Windows", "Unix"])
+        print(f"test2: {self.sys_combo.currentText()}")
         sys_layout.addWidget(self.sys_combo)
         top_layout.addLayout(sys_layout)
 
@@ -302,9 +305,11 @@ class MainWindow(QMainWindow):
         self.input_text = QLineEdit()
         self.input_text.setPlaceholderText("在此输入自然语言，例如：'帮我查看 /var/log/syslog 最近 50 行'，回车发送或点击“发送”")
         self.btn_send = QPushButton("发送到模型")
+        self.btn_voice = QPushButton("语音输入")
         send_row = QHBoxLayout()
         send_row.addWidget(self.input_text)
         send_row.addWidget(self.btn_send)
+        send_row.addWidget(self.btn_voice)
         inp_layout.addLayout(send_row)
         input_box.setLayout(inp_layout)
 
@@ -345,6 +350,7 @@ class MainWindow(QMainWindow):
         self.provider_combo.currentIndexChanged.connect(self.on_provider_changed)
         self.btn_ssh_cfg.clicked.connect(self.open_ssh_dialog)
         self.btn_send.clicked.connect(self.on_send_clicked)
+        self.btn_voice.clicked.connect(self.on_voice_clicked)
         self.input_text.returnPressed.connect(self.on_send_clicked)
         self.btn_clear.clicked.connect(self.terminal.clear)
         self.btn_disconnect.clicked.connect(self.disconnect_ssh)
@@ -470,7 +476,39 @@ class MainWindow(QMainWindow):
             self.local_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[本地执行错误] {e}"))
             self.local_exec_worker.start()
 
+    def on_voice_clicked(self):
+        if self.is_recording:
+            return
+        self.is_recording = True
+        self.btn_voice.setText("录音中...")
+        self.btn_voice.setEnabled(False)
+        self.model_resp.appendPlainText("🎧 正在录音，请说话...\n")
 
+        def worker():
+            try:
+                from voice_input import record_once
+                text = record_once()  # 阻塞录音与识别，放在线程中执行
+                def apply_result():
+                    if text:
+                        # 将识别文本追加到输入框
+                        cur = self.input_text.text()
+                        self.input_text.setText((cur + " " + text).strip())
+                        self.model_resp.appendPlainText(f"💬 语音识别: {text}\n")
+                    else:
+                        self.model_resp.appendPlainText("😕 语音识别失败\n")
+                QTimer.singleShot(0, apply_result)
+            except Exception as e:
+                def apply_err():
+                    self.model_resp.appendPlainText(f"❌ 语音输入错误: {e}\n")
+                QTimer.singleShot(0, apply_err)
+            finally:
+                def reset_ui():
+                    self.is_recording = False
+                    self.btn_voice.setText("语音输入")
+                    self.btn_voice.setEnabled(True)
+                QTimer.singleShot(0, reset_ui)
+
+        threading.Thread(target=worker, daemon=True).start()
 def main():
     app = QApplication(sys.argv)
     win = MainWindow()

@@ -21,12 +21,13 @@ def load_system_prompt(system_type: str = None) -> str:
     prompt_dir = os.path.join(os.path.dirname(__file__), "prompts")
 
     sys_lower = system_type.lower()
+    print("这个系统类型是:", sys_lower)
     if "windows" in sys_lower:
         prompt_file = os.path.join(prompt_dir, "system_windows.txt")
     elif "linux" in sys_lower:
         prompt_file = os.path.join(prompt_dir, "system_linux.txt")
-    elif "darwin" in sys_lower or "mac" in sys_lower:
-        prompt_file = os.path.join(prompt_dir, "system_mac.txt")
+    elif "Unix" in sys_lower:
+        prompt_file = os.path.join(prompt_dir, "system_Unix.txt")
     else:
         prompt_file = os.path.join(prompt_dir, "system_default.txt")
 

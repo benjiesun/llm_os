@@ -55,23 +55,22 @@ touch os.py
 ```text
 YanDao-OS/
 ├── main.py                     # CLI entry point | CLI入口
-├── gui_main.py                 # GUI application | GUI应用
 ├── llm_api.py                  # Remote LLM interface | 远程LLM接口
 ├── llm_vllm.py                 # Local LLM interface | 本地LLM接口
 ├── command_executor.py         # Local command execution | 本地命令执行
 ├── ssh_executor.py             # Remote SSH execution | 远程SSH执行
 ├── voice_input.py              # Voice recognition | 语音识别
-├── prompts.json                # Prompt configurations | 提示词配置
-├── history.txt                 # Command history | 命令历史
 ├── utils/                      # Utility modules | 工具模块
 │   ├── blacklist_loader.py     # Security blacklists | 安全黑名单
 │   ├── prompt_loader.py        # Prompt management | 提示词管理
 │   ├── dangerous_keys/         # Blacklist files | 黑名单文件
 │   │   ├── blacklist_linux.txt
 │   │   └── blacklist_windows.txt
+│   │   └── blacklist_unix.txt
 │   └── prompts/                # System prompts | 系统提示词
 │       ├── system_linux.txt
 │       └── system_windows.txt
+│   │   └── system_unix.txt
 ├── README.md                   # English documentation | 英文文档
 ├── README_ZH.md                # Chinese documentation | 中文文档
 └── requirements.txt            # Dependencies | 依赖项

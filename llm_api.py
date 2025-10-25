@@ -11,38 +11,29 @@ from dotenv import load_dotenv
 from utils.prompt_loader import load_system_prompt
 
 load_dotenv()
+
+# 默认配置（可被前端覆盖）
 API_BASE = os.getenv("API_BASE", "https://api.openai.com/v1")
 API_KEY = os.getenv("API_KEY", "")
 API_MODEL = os.getenv("API_MODEL", "gpt-4o-mini")
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
-
-messages = []
-
-def init_api_prompt(system_type: str = None):
-    """加载系统提示词"""
-    SYSTEM_PROMPT = load_system_prompt(system_type)
-    return [{"role": "system", "content": SYSTEM_PROMPT}]
 
 def _choose_url_and_payload(api_base: str, model: str, system_prompt: str, user_prompt: str, max_new_tokens: int, temperature: float):
     """
     返回 (url, json_payload, headers)
     尝试构造兼容 OpenAI Chat Completions 的 payload。
     """
-    global messages
-    if not messages:
-        messages = init_vllm_prompt(system_type)
-    
-    # 将用户输入加入上下文
-    messages.append({"role": "user", "content": prompt})
-
     url = api_base.rstrip("/") + "/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {API_KEY or ''}",
     }
     payload = {
-        "model": API_MODEL,
-        "messages": messages,
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
         "temperature": temperature,
         "max_tokens": max_new_tokens,
         "stream": False

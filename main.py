@@ -5,7 +5,7 @@ import subprocess
 import threading
 from functools import partial
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject,QTimer
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject,QTimer,pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QRadioButton, QButtonGroup,
@@ -214,6 +214,11 @@ class SSHDialog(QDialog):
 
 # ----------------- 主窗口 -----------------
 class MainWindow(QMainWindow):
+
+    voice_text_signal = pyqtSignal(str)
+    voice_done_signal = pyqtSignal()
+
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("言道 OS 前端 — PyQt5")
@@ -354,6 +359,8 @@ class MainWindow(QMainWindow):
         self.input_text.returnPressed.connect(self.on_send_clicked)
         self.btn_clear.clicked.connect(self.terminal.clear)
         self.btn_disconnect.clicked.connect(self.disconnect_ssh)
+        self.voice_text_signal.connect(self._apply_voice_text)
+        self.voice_done_signal.connect(self._reset_voice_ui)
 
         # 初始化可见性
         self.on_provider_changed()
@@ -476,6 +483,19 @@ class MainWindow(QMainWindow):
             self.local_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[本地执行错误] {e}"))
             self.local_exec_worker.start()
 
+    def _apply_voice_text(self, text: str):
+        if text:
+            cur = self.input_text.text()
+            self.input_text.setText((cur + " " + text).strip())
+            self.model_resp.appendPlainText(f"💬 语音识别: {text}\n")
+        else:
+            self.model_resp.appendPlainText("😕 语音识别失败\n")
+
+    def _reset_voice_ui(self):
+        self.is_recording = False
+        self.btn_voice.setText("语音输入")
+        self.btn_voice.setEnabled(True)
+
     def on_voice_clicked(self):
         if self.is_recording:
             return
@@ -487,26 +507,24 @@ class MainWindow(QMainWindow):
         def worker():
             try:
                 from voice_input import record_once
-                text = record_once()  # 阻塞录音与识别，放在线程中执行
-                def apply_result():
-                    if text:
-                        # 将识别文本追加到输入框
-                        cur = self.input_text.text()
-                        self.input_text.setText((cur + " " + text).strip())
-                        self.model_resp.appendPlainText(f"💬 语音识别: {text}\n")
-                    else:
-                        self.model_resp.appendPlainText("😕 语音识别失败\n")
-                QTimer.singleShot(0, apply_result)
+                text = record_once()  # 阻塞的外部录音/识别
+                # 通过信号将结果发送回主线程（比 QTimer.singleShot 更可靠）
+                try:
+                    self.voice_text_signal.emit(text or "")
+                except Exception:
+                    # 如果信号发射失败，仍尝试在 model_resp 打印错误
+                    pass
             except Exception as e:
-                def apply_err():
+                try:
+                    self.voice_text_signal.emit("")  # 通知识别失败
                     self.model_resp.appendPlainText(f"❌ 语音输入错误: {e}\n")
-                QTimer.singleShot(0, apply_err)
+                except Exception:
+                    pass
             finally:
-                def reset_ui():
-                    self.is_recording = False
-                    self.btn_voice.setText("语音输入")
-                    self.btn_voice.setEnabled(True)
-                QTimer.singleShot(0, reset_ui)
+                try:
+                    self.voice_done_signal.emit()
+                except Exception:
+                    pass
 
         threading.Thread(target=worker, daemon=True).start()
 def main():

@@ -1,0 +1,14 @@
+ rm
+ reboot
+ shutdown
+ init 0
+ mkfs
+ dd
+ :(){:|:&};:
+ mv /
+ chmod 777 /
+ chown root
+ userdel
+ poweroff
+ halt
+ shutdown -h

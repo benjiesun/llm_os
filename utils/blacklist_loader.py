@@ -44,7 +44,7 @@ def load_blacklist(system_type: str = None, include_default: bool = True) -> Lis
         files.append(WINDOWS_FILE)
     elif "linux" in sys_lower:
         files.append(LINUX_FILE)
-    elif "darwin" in sys_lower or "mac" in sys_lower:
+    elif "darwin" in sys_lower or "unix" in sys_lower:
         # macOS 按 linux 处理，也可以另建文件
         files.append(LINUX_FILE)
     else:

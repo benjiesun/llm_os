@@ -369,6 +369,7 @@ class MainWindow(QMainWindow):
             vals = dlg.get_values()
             host = vals["host"]; port = vals["port"]
             username = vals["username"]; password = vals["password"]
+            print(f"SSH: 连接中 -> {host}:{port} ...")
             system_type = vals["system_type"]
             self.remote_system_type = system_type
             self.lbl_ssh_status.setText(f"SSH: 连接中 -> {host}:{port} ...")

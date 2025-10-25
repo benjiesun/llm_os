@@ -84,6 +84,7 @@ YanDao-OS/
 │   └── prompts/                # System prompts | 系统提示词
 │       ├── system_linux.txt
 │       └── system_windows.txt
+│   │   └── system_unix.txt
 ├── README.md                   # English documentation | 英文文档
 ├── README_ZH.md                # Chinese documentation | 中文文档
 └── requirements.txt            # Dependencies | 依赖项

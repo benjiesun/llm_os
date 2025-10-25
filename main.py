@@ -1,113 +1,481 @@
-import platform
+# frent_gui.py
+import sys
 import re
-from command_executor import execute_command
-from script_generator import handle_script_response
+import subprocess
+from functools import partial
 
-from ssh_executor import connect_ssh, execute_remote_command, close_ssh
-# ========== 选择使用模式 ==========
-# 可选："local"（本地模型）或 "api"（远程模型）
-PROVIDER = "local"     # local / api
-USE_VOICE = False     # 🎤 是否启用语音输入
-USE_SSH = False        # 🌐 是否通过 SSH 在远程执行命令
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QRadioButton, QButtonGroup,
+    QComboBox, QTextEdit, QPlainTextEdit, QMessageBox, QDialog,
+    QFormLayout, QSpinBox, QCheckBox, QGroupBox
+)
+
+# ----- 尝试导入项目已有模块（按你项目结构来） -----
+try:
+    from llm_api import get_command_from_api
+except Exception:
+    get_command_from_api = None
+
+try:
+    from llm_vllm import get_command_from_llm
+except Exception:
+    get_command_from_llm = None
+
+try:
+    from command_executor import execute_command as execute_command_local
+except Exception:
+    execute_command_local = None
+
+try:
+    import ssh_executor
+    connect_ssh_fn = getattr(ssh_executor, "connect_ssh", None)
+    execute_remote_command_fn = getattr(ssh_executor, "execute_remote_command", None)
+    close_ssh_fn = getattr(ssh_executor, "close_ssh", None)
+except Exception:
+    ssh_executor = None
+    connect_ssh_fn = None
+    execute_remote_command_fn = None
+    close_ssh_fn = None
+
+# ----------------- 你的命令抽取函数（沿用原逻辑） -----------------
+def extract_command_from_response(text: str) -> str:
+    for marker in ["对应的命令是：", "对应的命令：", "Command:", "对应命令："]:
+        if marker in text:
+            after = text.split(marker, 1)[1].strip()
+            for line in after.splitlines():
+                line = line.strip()
+                if line:
+                    return line
+            return after.strip()
+    cmd_pattern = r"(?m)^[ \t]*([a-zA-Z][a-zA-Z0-9_\-./]*(?:\s+[^`'\n]+)*)[ \t]*$"
+    matches = re.findall(cmd_pattern, text.strip())
+    if matches:
+        return matches[-1].strip()
+    return ""
+
+# ----------------- Worker（在后台调用 LLM / 执行命令） -----------------
+class ModelWorker(QThread):
+    finished_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, provider: str, user_input: str, system_type: str, provider_settings: dict):
+        super().__init__()
+        self.provider = provider
+        self.user_input = user_input
+        self.system_type = system_type
+        self.settings = provider_settings or {}
+
+    def run(self):
+        try:
+            if self.provider == "local":
+                if get_command_from_llm is None:
+                    raise RuntimeError("本地 llm_vllm 模块未找到或未实现 get_command_from_llm")
+                # 尝试不同签名：优先传入 local_addr，如果实现不接受则回退
+                try:
+                    response = get_command_from_llm(self.user_input, self.system_type, self.settings.get("local_addr"))
+                except TypeError:
+                    # 回退到 2-arg 签名
+                    response = get_command_from_llm(self.user_input, self.system_type)
+            else:
+                if get_command_from_api is None:
+                    raise RuntimeError("远程 API 模块未找到或未实现 get_command_from_api")
+                # 尝试以最完整签名调用： (user_input, system_type, api_base, api_key, api_model)
+                try:
+                    response = get_command_from_api(
+                        self.user_input,
+                        self.system_type,
+                        self.settings.get("api_base"),
+                        self.settings.get("api_key"),
+                        self.settings.get("api_model")
+                    )
+                except TypeError:
+                    # 回退 2-arg 调用 (user_input, system_type)
+                    try:
+                        response = get_command_from_api(self.user_input, self.system_type)
+                    except TypeError:
+                        # 最后尝试将 settings 当作关键字参数（如果实现支持）
+                        try:
+                            kwargs = {"system_type": self.system_type, **self.settings}
+                            response = get_command_from_api(self.user_input, **kwargs)
+                        except Exception as e:
+                            raise RuntimeError(f"调用 get_command_from_api 时出错：{e}")
+            if response is None:
+                response = ""
+            self.finished_signal.emit(response)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
+class LocalExecWorker(QThread):
+    line_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, command: str):
+        super().__init__()
+        self.command = command
+
+    def run(self):
+        try:
+            proc = subprocess.Popen(
+                self.command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            output_accum = []
+            if proc.stdout:
+                for line in proc.stdout:
+                    self.line_signal.emit(line.rstrip("\n"))
+                    output_accum.append(line)
+            proc.wait()
+            final = "".join(output_accum)
+            self.finished_signal.emit(final)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
+class RemoteExecWorker(QThread):
+    chunk_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, command: str, system_type: str, ssh_client=None):
+        super().__init__()
+        self.command = command
+        self.system_type = system_type
+        self.ssh_client = ssh_client
+
+    def run(self):
+        try:
+            if execute_remote_command_fn is None:
+                raise RuntimeError("未找到 ssh_executor.execute_remote_command 函数")
+            res = execute_remote_command_fn(self.command, self.system_type)
+            if isinstance(res, str):
+                self.finished_signal.emit(res)
+            else:
+                self.finished_signal.emit(str(res))
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+# ----------------- SSH 参数输入对话框 -----------------
+class SSHDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("SSH 连接设置")
+        self.setModal(True)
+        form = QFormLayout()
+
+        self.host_input = QLineEdit()
+        self.port_input = QSpinBox()
+        self.port_input.setRange(1, 65535)
+        self.port_input.setValue(22)
+        self.user_input = QLineEdit()
+        self.pass_input = QLineEdit()
+        self.pass_input.setEchoMode(QLineEdit.Password)
+
+        self.os_combo = QComboBox()
+        self.os_combo.addItems(["Linux", "Windows", "Unix"])
+
+        form.addRow("主机 (host):", self.host_input)
+        form.addRow("端口 (port):", self.port_input)
+        form.addRow("用户名:", self.user_input)
+        form.addRow("密码:", self.pass_input)
+        form.addRow("远程系统类型:", self.os_combo)
+
+        btn_box = QHBoxLayout()
+        self.btn_ok = QPushButton("连接并保存")
+        self.btn_cancel = QPushButton("取消")
+        btn_box.addWidget(self.btn_ok)
+        btn_box.addWidget(self.btn_cancel)
+
+        vbox = QVBoxLayout()
+        vbox.addLayout(form)
+        vbox.addLayout(btn_box)
+        self.setLayout(vbox)
+
+        self.btn_ok.clicked.connect(self.accept)
+        self.btn_cancel.clicked.connect(self.reject)
+
+    def get_values(self):
+        return {
+            "host": self.host_input.text().strip(),
+            "port": int(self.port_input.value()),
+            "username": self.user_input.text().strip(),
+            "password": self.pass_input.text(),
+            "system_type": self.os_combo.currentText()
+        }
+
+# ----------------- 主窗口 -----------------
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("言道 OS 前端 — PyQt5")
+        self.resize(1000, 720)
+
+        self.ssh_client = None
+        self.remote_system_type = None
+
+        # 顶部设置区
+        top_widget = QWidget()
+        top_layout = QHBoxLayout()
+        top_widget.setLayout(top_layout)
+
+        # 运行模式选择
+        mode_groupbox = QGroupBox("执行模式")
+        mg_layout = QVBoxLayout()
+        self.rb_local = QRadioButton("在本机运行")
+        self.rb_ssh = QRadioButton("通过 SSH 在远端运行")
+        self.rb_local.setChecked(True)
+        mg_layout.addWidget(self.rb_local)
+        mg_layout.addWidget(self.rb_ssh)
+        mode_groupbox.setLayout(mg_layout)
+        top_layout.addWidget(mode_groupbox)
+
+        # 模型类型 & 配置面板
+        provider_groupbox = QGroupBox("模型提供者 & 配置")
+        pg_layout = QVBoxLayout()
+
+        provider_row = QHBoxLayout()
+        provider_row.addWidget(QLabel("Provider:"))
+        self.provider_combo = QComboBox()
+        self.provider_combo.addItems(["api", "local"])
+        provider_row.addWidget(self.provider_combo)
+        provider_row.addStretch()
+        pg_layout.addLayout(provider_row)
+
+        # API 配置区（只在 provider == api 时可见）
+        self.api_cfg_widget = QWidget()
+        api_layout = QFormLayout()
+        self.api_base_input = QLineEdit()
+        self.api_base_input.setPlaceholderText("https://api.openai.com/v1")
+        self.api_key_input = QLineEdit()
+        self.api_key_input.setEchoMode(QLineEdit.Password)
+        self.api_model_input = QLineEdit()
+        self.api_model_input.setPlaceholderText("gpt-4o-mini")
+        api_layout.addRow("API_BASE:", self.api_base_input)
+        api_layout.addRow("API_KEY:", self.api_key_input)
+        api_layout.addRow("API_MODEL:", self.api_model_input)
+        self.api_cfg_widget.setLayout(api_layout)
+        pg_layout.addWidget(self.api_cfg_widget)
+
+        # Local 模型配置区（只在 provider == local 时可见）
+        self.local_cfg_widget = QWidget()
+        local_layout = QFormLayout()
+        self.local_addr_input = QLineEdit()
+        self.local_addr_input.setPlaceholderText("例如：http://127.0.0.1:8000 或 unix:///path/to/socket")
+        local_layout.addRow("本地模型地址:", self.local_addr_input)
+        self.local_cfg_widget.setLayout(local_layout)
+        pg_layout.addWidget(self.local_cfg_widget)
+
+        provider_groupbox.setLayout(pg_layout)
+        top_layout.addWidget(provider_groupbox)
+
+        # 远程连接按钮 & 当前状态
+        conn_layout = QVBoxLayout()
+        self.btn_ssh_cfg = QPushButton("SSH 设置 / 连接")
+        self.lbl_ssh_status = QLabel("SSH: 未连接")
+        conn_layout.addWidget(self.btn_ssh_cfg)
+        conn_layout.addWidget(self.lbl_ssh_status)
+        top_layout.addLayout(conn_layout)
+
+        # 系统类型（可手动覆盖）
+        sys_layout = QVBoxLayout()
+        sys_layout.addWidget(QLabel("本机 / 指定系统类型（覆盖）:"))
+        self.sys_combo = QComboBox()
+        self.sys_combo.addItems(["Auto (detect)", "Linux", "Windows", "Unix"])
+        sys_layout.addWidget(self.sys_combo)
+        top_layout.addLayout(sys_layout)
+
+        # 中央：指令输入与输出
+        central = QWidget()
+        central_layout = QVBoxLayout()
+        central.setLayout(central_layout)
+
+        input_box = QGroupBox("自然语言指令")
+        inp_layout = QVBoxLayout()
+        self.input_text = QLineEdit()
+        self.input_text.setPlaceholderText("在此输入自然语言，例如：'帮我查看 /var/log/syslog 最近 50 行'，回车发送或点击“发送”")
+        self.btn_send = QPushButton("发送到模型")
+        send_row = QHBoxLayout()
+        send_row.addWidget(self.input_text)
+        send_row.addWidget(self.btn_send)
+        inp_layout.addLayout(send_row)
+        input_box.setLayout(inp_layout)
+
+        output_box = QGroupBox("模型回应 / 终端输出")
+        out_layout = QVBoxLayout()
+        self.model_resp = QPlainTextEdit()
+        self.model_resp.setReadOnly(True)
+        self.terminal = QPlainTextEdit()
+        self.terminal.setReadOnly(True)
+        self.terminal.setPlaceholderText("命令执行输出会在此处滚动显示...")
+        out_layout.addWidget(QLabel("模型回答："))
+        out_layout.addWidget(self.model_resp, stretch=1)
+        out_layout.addWidget(QLabel("执行输出："))
+        out_layout.addWidget(self.terminal, stretch=2)
+        output_box.setLayout(out_layout)
+
+        # 底部快捷按钮
+        bottom_row = QHBoxLayout()
+        self.btn_clear = QPushButton("清空终端")
+        self.btn_disconnect = QPushButton("断开 SSH（若已连接）")
+        bottom_row.addWidget(self.btn_clear)
+        bottom_row.addStretch()
+        bottom_row.addWidget(self.btn_disconnect)
+
+        central_layout.addWidget(input_box)
+        central_layout.addWidget(output_box)
+        central_layout.addLayout(bottom_row)
+
+        # 总体布局
+        main_widget = QWidget()
+        main_layout = QVBoxLayout()
+        main_widget.setLayout(main_layout)
+        main_layout.addWidget(top_widget)
+        main_layout.addWidget(central)
+        self.setCentralWidget(main_widget)
+
+        # 信号连接
+        self.provider_combo.currentIndexChanged.connect(self.on_provider_changed)
+        self.btn_ssh_cfg.clicked.connect(self.open_ssh_dialog)
+        self.btn_send.clicked.connect(self.on_send_clicked)
+        self.input_text.returnPressed.connect(self.on_send_clicked)
+        self.btn_clear.clicked.connect(self.terminal.clear)
+        self.btn_disconnect.clicked.connect(self.disconnect_ssh)
+
+        # 初始化可见性
+        self.on_provider_changed()
+
+    # ---------- Provider 面板可见性 ----------
+    def on_provider_changed(self):
+        provider = self.provider_combo.currentText()
+        if provider == "api":
+            self.api_cfg_widget.setVisible(True)
+            self.local_cfg_widget.setVisible(False)
+        else:
+            self.api_cfg_widget.setVisible(False)
+            self.local_cfg_widget.setVisible(True)
+
+    # ---------- SSH 处理 ----------
+    def open_ssh_dialog(self):
+        dlg = SSHDialog(self)
+        if dlg.exec_() == QDialog.Accepted:
+            vals = dlg.get_values()
+            host = vals["host"]; port = vals["port"]
+            username = vals["username"]; password = vals["password"]
+            print(f"SSH: 连接中 -> {host}:{port} ...")
+            system_type = vals["system_type"]
+            self.remote_system_type = system_type
+            self.lbl_ssh_status.setText(f"SSH: 连接中 -> {host}:{port} ...")
+            QApplication.processEvents()
+            try:
+                if connect_ssh_fn is None:
+                    raise RuntimeError("未找到 ssh_executor.connect_ssh")
+                try:
+                    ssh_client = connect_ssh_fn(host, port, username, password)
+                except TypeError:
+                    ssh_client = connect_ssh_fn()
+                self.ssh_client = ssh_client
+                self.lbl_ssh_status.setText(f"SSH: 已连接到 {host}:{port}")
+            except Exception as e:
+                self.ssh_client = None
+                self.lbl_ssh_status.setText(f"SSH: 连接失败 — {e}")
+                QMessageBox.warning(self, "SSH 连接失败", f"无法连接到远程主机：\n{e}")
+
+    def disconnect_ssh(self):
+        if self.ssh_client and close_ssh_fn:
+            try:
+                close_ssh_fn(self.ssh_client)
+            except Exception:
+                pass
+        self.ssh_client = None
+        self.lbl_ssh_status.setText("SSH: 未连接")
+
+    # ---------- 发送到模型 ----------
+    def on_send_clicked(self):
+        user_text = self.input_text.text().strip()
+        if not user_text:
+            return
+        provider = self.provider_combo.currentText()
+        # 决定 system_type：优先远程已选，或手动下拉选择，或自动平台检测
+        if self.rb_ssh.isChecked():
+            if not self.ssh_client:
+                QMessageBox.warning(self, "未连接 SSH", "你选择了 SSH 模式，但尚未连接远程主机，请先点击“SSH 设置 / 连接”。")
+                return
+            system_type = self.remote_system_type or "Linux"
+        else:
+            sys_choice = self.sys_combo.currentText()
+            if sys_choice == "Auto (detect)":
+                import platform
+                system_type = platform.system()
+            else:
+                system_type = sys_choice
+
+        # 构建 provider_settings
+        provider_settings = {}
+        if provider == "api":
+            provider_settings["api_base"] = self.api_base_input.text().strip() or None
+            provider_settings["api_key"] = self.api_key_input.text().strip() or None
+            provider_settings["api_model"] = self.api_model_input.text().strip() or None
+        else:
+            provider_settings["local_addr"] = self.local_addr_input.text().strip() or None
+
+        # 清理旧输出
+        self.model_resp.clear()
+        self.terminal.appendPlainText(f">>> 发送请求到模型（{provider}），系统类型：{system_type}\n")
+
+        # 调用后台模型线程（传入 provider_settings）
+        self.model_worker = ModelWorker(provider, user_text, system_type, provider_settings)
+        self.model_worker.finished_signal.connect(self.on_model_response)
+        self.model_worker.error_signal.connect(lambda e: self.append_model_error(e))
+        self.model_worker.start()
+        self.btn_send.setEnabled(False)
+
+    def append_model_error(self, e):
+        self.btn_send.setEnabled(True)
+        self.model_resp.appendPlainText(f"[模型调用错误] {e}")
+
+    def on_model_response(self, response: str):
+        self.btn_send.setEnabled(True)
+        self.model_resp.appendPlainText(response)
+        # 尝试提取命令
+        cmd = extract_command_from_response(response)
+        if not cmd:
+            QMessageBox.information(self, "未检测到命令", "模型回应中未检测到可执行命令（使用内置抽取逻辑）。请在自然语言中明确要求模型给出“对应的命令是：”以方便抽取。")
+            return
+        # 弹出确认是否执行
+        r = QMessageBox.question(self, "确认执行", f"是否执行以下命令？\n\n{cmd}\n\n（在 SSH 模式下，命令将在远程执行）", QMessageBox.Yes | QMessageBox.No)
+        if r != QMessageBox.Yes:
+            self.terminal.appendPlainText("🌀 已取消执行命令。\n")
+            return
+
+        # 执行命令
+        self.terminal.appendPlainText(f"🪶 正在执行: {cmd}\n")
+        if self.rb_ssh.isChecked():
+            self.remote_exec_worker = RemoteExecWorker(cmd, self.remote_system_type or "Linux", ssh_client=self.ssh_client)
+            self.remote_exec_worker.chunk_signal.connect(lambda s: self.terminal.appendPlainText(s))
+            self.remote_exec_worker.finished_signal.connect(lambda s: self.terminal.appendPlainText("\n[远程执行结束]\n" + (s or "")))
+            self.remote_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[远程执行错误] {e}"))
+            self.remote_exec_worker.start()
+        else:
+            self.local_exec_worker = LocalExecWorker(cmd)
+            self.local_exec_worker.line_signal.connect(lambda ln: self.terminal.appendPlainText(ln))
+            self.local_exec_worker.finished_signal.connect(lambda s: self.terminal.appendPlainText("\n[本地执行结束]\n" + (s or "")))
+            self.local_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[本地执行错误] {e}"))
+            self.local_exec_worker.start()
 
 
 def main():
-    exec_mode = "远程 SSH 模式 🔗" if USE_SSH else "本地终端模式 💻"
-    provider_mode = "远程 API 模型 🌐" if PROVIDER == "api" else "本地模型 💾"
-
-    if USE_SSH:
-        ssh, system_type = connect_ssh()
-    else:
-        system_type = platform.system()
-        
-    if PROVIDER == "local":
-        from llm_vllm import init_vllm_prompt
-        init_vllm_prompt(system_type)
-    elif PROVIDER == "api":
-        from llm_api import init_api_prompt
-        init_api_prompt(system_type)
-    else:
-        print("❌ 未知的 PROVIDER，请设置为 'local' 或 'api'")
-        exit()
-
-    print(f"🪶 言道 OS | 以言通道 —— 当前模式：{provider_mode} | {exec_mode}")
-
-    
-    print("输入自然语言指令（输入 exit 退出）")
-
-    while True:
-        if USE_VOICE:
-            from voice_input import record_once
-            print("\n🎧 按 Enter 开始录音，或输入文字指令：")
-            choice = input("> ").strip()
-            if choice.lower() in ["exit", "quit"]:
-                print("\n🍃 再会，道自无穷。")
-                break
-
-            if choice == "":
-                user_input = record_once()
-                if not user_input:
-                    continue
-            else:
-                user_input = choice
-        else:
-            user_input = input("🧠 你> ").strip()
-            if user_input.lower() in ["exit", "quit"]:
-                print("\n🍃 再会，道自无穷。")
-                break
-
-
-        # 调用模型
-        if PROVIDER == "local":
-            from llm_vllm import get_command_from_llm
-            response = get_command_from_llm(user_input, system_type)
-        elif PROVIDER == "api":
-            from llm_api import get_command_from_api
-            response = get_command_from_api(user_input, system_type)
-        else:
-            print("❌ 未知的 PROVIDER，请设置为 'local' 或 'api'")
-            continue
-
-
-        if "EXECUTE:" in response:
-            # 提取命令部分
-            cmd = response.split("EXECUTE:")[1].strip()
-            lines = cmd.splitlines()
-            desc = lines[0] if lines else "执行命令"
-            command = "\n".join(lines[1:]) if len(lines) > 1 else ""
-
-            print(f"\n🤖 言道将为您做：{desc}")
-            print(f"建议执行命令：{command}")
-
-            confirm = input("是否内您执行？(y/n): ").lower()
-            if confirm == "y":
-                print("\n🪶 正在执行...\n")
-
-                #执行命令（本地 / 远程）
-                if USE_SSH:
-                    from ssh_executor import execute_remote_command
-                    result = execute_shell_command(command,system_type)
-                else:
-                    result = execute_command(command)
-
-                print("命令输出：\n", result)
-                # explanation = explain_output(command_lines, result)
-                # print(f"🤖 输出解释：{explanation}")
-            else:
-                print("🌀 已取消执行。")
-
-        elif "SCRIPT:" in response:
-            handle_script_response(response)
-
-        elif "REPLY:" in response:
-            reply_content = response.split("REPLY:")[1].strip()
-            print("\n🤖 言道：")
-            print(reply_content)
-            print("─" * 60)
-
-        else:
-            print(f"\n🤖 言道：❌生成失败，请重试。")
-            print("─" * 60)
+    app = QApplication(sys.argv)
+    win = MainWindow()
+    win.show()
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":

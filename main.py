@@ -1,6 +1,7 @@
 # frent_gui.py
 import sys
 import re
+import os
 import subprocess
 import threading
 from functools import partial
@@ -25,11 +26,6 @@ except Exception:
     get_command_from_llm = None
 
 try:
-    from command_executor import execute_command as execute_command_local
-except Exception:
-    execute_command_local = None
-
-try:
     import ssh_executor
     connect_ssh_fn = getattr(ssh_executor, "connect_ssh", None)
     execute_remote_command_fn = getattr(ssh_executor, "execute_remote_command", None)
@@ -39,22 +35,6 @@ except Exception:
     connect_ssh_fn = None
     execute_remote_command_fn = None
     close_ssh_fn = None
-
-# ----------------- 你的命令抽取函数（沿用原逻辑） -----------------
-def extract_command_from_response(text: str) -> str:
-    for marker in ["对应的命令是：", "对应的命令：", "Command:", "对应命令："]:
-        if marker in text:
-            after = text.split(marker, 1)[1].strip()
-            for line in after.splitlines():
-                line = line.strip()
-                if line:
-                    return line
-            return after.strip()
-    cmd_pattern = r"(?m)^[ \t]*([a-zA-Z][a-zA-Z0-9_\-./]*(?:\s+[^`'\n]+)*)[ \t]*$"
-    matches = re.findall(cmd_pattern, text.strip())
-    if matches:
-        return matches[-1].strip()
-    return ""
 
 # ----------------- Worker（在后台调用 LLM / 执行命令） -----------------
 class ModelWorker(QThread):
@@ -260,11 +240,11 @@ class MainWindow(QMainWindow):
         self.api_cfg_widget = QWidget()
         api_layout = QFormLayout()
         self.api_base_input = QLineEdit()
-        self.api_base_input.setPlaceholderText("https://api.openai.com/v1")
+        self.api_base_input.setPlaceholderText("https://api.deepseek.com/v1")
         self.api_key_input = QLineEdit()
         self.api_key_input.setEchoMode(QLineEdit.Password)
         self.api_model_input = QLineEdit()
-        self.api_model_input.setPlaceholderText("gpt-4o-mini")
+        self.api_model_input.setPlaceholderText("deepseek-chat")
         api_layout.addRow("API_BASE:", self.api_base_input)
         api_layout.addRow("API_KEY:", self.api_key_input)
         api_layout.addRow("API_MODEL:", self.api_model_input)
@@ -450,38 +430,129 @@ class MainWindow(QMainWindow):
         self.model_worker.start()
         self.btn_send.setEnabled(False)
 
+        self.input_text.clear()
+
     def append_model_error(self, e):
         self.btn_send.setEnabled(True)
         self.model_resp.appendPlainText(f"[模型调用错误] {e}")
 
+    
     def on_model_response(self, response: str):
         self.btn_send.setEnabled(True)
-        self.model_resp.appendPlainText(response)
-        # 尝试提取命令
-        cmd = extract_command_from_response(response)
-        if not cmd:
-            QMessageBox.information(self, "未检测到命令", "模型回应中未检测到可执行命令（使用内置抽取逻辑）。请在自然语言中明确要求模型给出“对应的命令是：”以方便抽取。")
-            return
-        # 弹出确认是否执行
-        r = QMessageBox.question(self, "确认执行", f"是否执行以下命令？\n\n{cmd}\n\n（在 SSH 模式下，命令将在远程执行）", QMessageBox.Yes | QMessageBox.No)
-        if r != QMessageBox.Yes:
-            self.terminal.appendPlainText("🌀 已取消执行命令。\n")
-            return
 
-        # 执行命令
-        self.terminal.appendPlainText(f"🪶 正在执行: {cmd}\n")
-        if self.rb_ssh.isChecked():
-            self.remote_exec_worker = RemoteExecWorker(cmd, self.remote_system_type or "Linux", ssh_client=self.ssh_client)
-            self.remote_exec_worker.chunk_signal.connect(lambda s: self.terminal.appendPlainText(s))
-            self.remote_exec_worker.finished_signal.connect(lambda s: self.terminal.appendPlainText("\n[远程执行结束]\n" + (s or "")))
-            self.remote_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[远程执行错误] {e}"))
-            self.remote_exec_worker.start()
+        # ========== 执行命令 ==========
+        if "EXECUTE:" in response:
+            cmd = response.split("EXECUTE:")[1].strip()
+            lines = cmd.splitlines()
+            desc = lines[0] if lines else "执行命令"
+            self.model_resp.appendPlainText(f"言道将为您做：{desc}\n")
+
+            command = "\n".join(lines[1:]) if len(lines) > 1 else ""
+            r = QMessageBox.question(
+                self, "确认执行",
+                f"是否执行以下命令？\n\n{command}\n\n（在 SSH 模式下，命令将在远程执行）",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if r != QMessageBox.Yes:
+                self.terminal.appendPlainText("🌀 已取消执行命令。\n")
+                return
+
+            self.terminal.appendPlainText(f"🪶 正在执行: {command}\n")
+
+            if self.rb_ssh.isChecked():
+                self.remote_exec_worker = RemoteExecWorker(command, self.remote_system_type or "Linux", ssh_client=self.ssh_client)
+                self.remote_exec_worker.chunk_signal.connect(lambda s: self.terminal.appendPlainText(s))
+                self.remote_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[远程执行结束]\n"))
+                self.remote_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[远程执行错误] {e}"))
+                self.remote_exec_worker.start()
+            else:
+                self.local_exec_worker = LocalExecWorker(command)
+                self.local_exec_worker.line_signal.connect(lambda ln: self.terminal.appendPlainText(ln))
+                self.local_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[本地执行结束]\n"))
+                self.local_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[本地执行错误] {e}"))
+                self.local_exec_worker.start()
+
+        # ========== 生成脚本 ==========
+        elif "SCRIPT:" in response:
+            # --- 提取脚本块 ---
+            script_block = response.split("SCRIPT:")[1].strip().splitlines()
+            filename = script_block[0].strip() if len(script_block) > 0 else "script.py"
+            raw_location = script_block[1].strip() if len(script_block) > 1 else ""
+            description = script_block[2].strip() if len(script_block) > 2 else "无描述"
+
+            # --- 自动路径识别 ---
+            if raw_location in ["当前路径", "当前目录", "当前文件夹", "."]:
+                location = os.getcwd()
+            elif raw_location:
+                location = raw_location if os.path.isabs(raw_location) else os.path.join(os.getcwd(), raw_location)
+            else:
+                location = os.getcwd()
+
+            # --- 提取代码内容 ---
+            match = re.search(r"```(?:python|bash)?\n([\s\S]*?)```", response)
+            if match:
+                script_content = match.group(1).strip()
+            else:
+                # 清理 <script> 标签
+                script_content = "\n".join(script_block[3:])
+                script_content = re.sub(r"</?script>", "", script_content).strip()
+
+            # --- 展示信息 ---
+            self.model_resp.appendPlainText(f"即将生成脚本文件：{filename}")
+            self.model_resp.appendPlainText(f"生成位置：{location}")
+            self.model_resp.appendPlainText(f"脚本说明：{description}")
+            self.model_resp.appendPlainText("内容预览：\n" + "─" * 40 + f"\n{script_content}\n" + "─" * 40 + "\n")
+
+            # --- 确认保存 ---
+            r = QMessageBox.question(self, "保存脚本", f"是否保存脚本文件 '{filename}'？", QMessageBox.Yes | QMessageBox.No)
+            if r != QMessageBox.Yes:
+                self.terminal.appendPlainText("❎ 已取消脚本生成。\n")
+                return
+
+            os.makedirs(location, exist_ok=True)
+            if not re.search(r"\.\w+$", filename):
+                filename += ".py"
+            save_path = os.path.join(location, filename)
+
+            try:
+                with open(save_path, "w", encoding="utf-8") as f:
+                    f.write(script_content)
+                self.terminal.appendPlainText(f"✅ 已生成脚本文件: {save_path}\n")
+            except Exception as e:
+                self.terminal.appendPlainText(f"❌ 保存失败: {e}\n")
+                return
+
+            # --- 执行脚本 ---
+            run_now = QMessageBox.question(self, "执行脚本", "是否立即执行该脚本？", QMessageBox.Yes | QMessageBox.No)
+            if run_now == QMessageBox.Yes:
+                if filename.endswith(".py"):
+                    command = f"python3 {save_path}"
+                elif filename.endswith(".sh"):
+                    command = f"bash {save_path}"
+                else:
+                    command = f"./{save_path}"
+
+                self.terminal.appendPlainText(f"🪶 正在执行脚本: {command}\n")
+                self.local_exec_worker = LocalExecWorker(command)
+                self.local_exec_worker.line_signal.connect(lambda ln: self.terminal.appendPlainText(ln))
+                self.local_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[脚本执行结束]\n"))
+                self.local_exec_worker.start()
+
+            else:
+                self.terminal.appendPlainText("✅ 已保存脚本，但未执行。\n")
+
+        # ========== 普通回复 ==========
+        elif "REPLY:" in response:
+            reply_content = response.split("REPLY:")[1].strip()
+            self.model_resp.appendPlainText(reply_content)
+
+        # ========== 其他情况 ==========
         else:
-            self.local_exec_worker = LocalExecWorker(cmd)
-            self.local_exec_worker.line_signal.connect(lambda ln: self.terminal.appendPlainText(ln))
-            self.local_exec_worker.finished_signal.connect(lambda s: self.terminal.appendPlainText("\n[本地执行结束]\n" + (s or "")))
-            self.local_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[本地执行错误] {e}"))
-            self.local_exec_worker.start()
+            self.model_resp.appendPlainText(f"❌ 未检测到可识别内容，请重试。\n")
+            print("=== RAW RESPONSE START ===")
+            print(response)
+            print("=== RAW RESPONSE END ===")
+
 
     def _apply_voice_text(self, text: str):
         if text:

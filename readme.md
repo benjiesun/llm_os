@@ -126,11 +126,13 @@ About to generate script file: os.py
 Save location: ./
 Description: List all prime numbers from 1 to 1000
 Preview:
-----------------------------------------
+
+```text
 for n in range(2, 1001):
     if all(n % i != 0 for i in range(2, int(n**0.5) + 1)):
         print(n)
-----------------------------------------
+```
+
 Save this script file? (y/n)
 Execute it now? (y/n)
 

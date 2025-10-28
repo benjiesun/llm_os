@@ -47,11 +47,15 @@ In this way, language becomes command, and command follows the Dao.
 
 🧠 Natural language understanding — supports Chinese, English, and mixed input.
 
-⚙️ Command generation & execution — powered by a large language model.
+⚙️ Command generation & execution — System commands are generated and executed automatically by the large language model.
 
-🔒 Safety confirmation — confirm before running any command.
+💻 Script Generation — Creates executable scripts from natural language.
 
-📜 Command history — records user input and results.
+💬 Conversational Dialogue — Supports natural, free-form interaction beyond command execution for smoother human-computer communication.
+
+🔒 Safety confirmation — Confirms all commands and scripts before execution.
+
+📜 Short-term Memory — Maintains recent context for multi-turn dialogue.
 
 🌐 Model flexibility — compatible with both local and remote models (Qwen, DeepSeek, OpenAI, etc.)
 
@@ -95,22 +99,51 @@ YanDao-OS/
 git clone https://github.com/yourname/yandao-os.git
 cd yandao-os
 pip install -r requirements.txt
-# CLI Mode
 python main.py
-
-# GUI Mode
-python gui_main.py
 ``` 
 
-Then type:
+## Usage Examples
+1️⃣ **Natural Command Execution**
+
+Input:
 
 List files in the current directory
 
-
-The system will respond:
+System Response:
 
 Command to execute: ls
 Proceed? (y/n)
+
+2️⃣ **Script Generation**
+
+Input:
+
+Help me generate a Python script called os that lists all prime numbers from 1 to 1000
+
+System Response:
+
+About to generate script file: os.py
+Save location: ./
+Description: List all prime numbers from 1 to 1000
+Preview:
+----------------------------------------
+for n in range(2, 1001):
+    if all(n % i != 0 for i in range(2, int(n**0.5) + 1)):
+        print(n)
+----------------------------------------
+Save this script file? (y/n)
+Execute it now? (y/n)
+
+3️⃣ **Conversational Mode**
+
+Input:
+
+Hello, who are you?
+
+System Response:
+
+Hello! I'm Yandao, your natural language Linux terminal assistant. I can help you execute commands, generate scripts, or answer questions. Please let me know how you can help.
+
 
 ## 💭 Philosophy
 

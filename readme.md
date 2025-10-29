@@ -3,7 +3,7 @@
 
 
 
-“Words have limits, but the Dao is infinite.” — Tao Te Ching
+“Words have limits, but the Dao is infinite.” 
 
 YanDao OS is a new kind of Natural Language Operating Shell that fuses Large Language Models (LLMs) with the Linux command line.
 It allows you to interact with your computer through plain language.

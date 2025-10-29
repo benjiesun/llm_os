@@ -4,14 +4,13 @@ import re
 import os
 import subprocess
 import threading
-from functools import partial
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject,QTimer,pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QRadioButton, QButtonGroup,
-    QComboBox, QTextEdit, QPlainTextEdit, QMessageBox, QDialog,
-    QFormLayout, QSpinBox, QCheckBox, QGroupBox
+    QLabel, QLineEdit, QPushButton, QRadioButton,
+    QComboBox, QPlainTextEdit, QMessageBox, QDialog,
+    QFormLayout, QSpinBox, QGroupBox
 )
 
 # ----- 尝试导入项目已有模块（按你项目结构来） -----
@@ -136,11 +135,27 @@ class RemoteExecWorker(QThread):
         try:
             if execute_remote_command_fn is None:
                 raise RuntimeError("未找到 ssh_executor.execute_remote_command 函数")
-            res = execute_remote_command_fn(self.command, self.system_type)
-            if isinstance(res, str):
-                self.finished_signal.emit(res)
-            else:
-                self.finished_signal.emit(str(res))
+            # 优先使用关键字参数传入 client，避免把 client 当作 timeout 位置参数
+            try:
+                res = execute_remote_command_fn(self.command, system_type=self.system_type, client=self.ssh_client)
+            except TypeError:
+                # 回退到不带 client 的签名
+                res = execute_remote_command_fn(self.command, self.system_type)
+
+            # 如果返回的是可迭代（例如生成器的流式输出），逐段发射
+            if hasattr(res, "__iter__") and not isinstance(res, (str, bytes)):
+                buf = []
+                for chunk in res:
+                    if chunk:
+                        s = str(chunk)
+                        self.chunk_signal.emit(s)
+                        buf.append(s)
+                self.finished_signal.emit("".join(buf))
+                return
+
+            # 否则将其视为完整字符串
+            out = "" if res is None else (res if isinstance(res, str) else str(res))
+            self.finished_signal.emit(out)
         except Exception as e:
             self.error_signal.emit(str(e))
 
@@ -363,18 +378,20 @@ class MainWindow(QMainWindow):
             host = vals["host"]; port = vals["port"]
             username = vals["username"]; password = vals["password"]
             print(f"SSH: 连接中 -> {host}:{port} ...")
-            system_type = vals["system_type"]
-            self.remote_system_type = system_type
+            system_type_pref = vals["system_type"]
+            self.remote_system_type = system_type_pref
             self.lbl_ssh_status.setText(f"SSH: 连接中 -> {host}:{port} ...")
             QApplication.processEvents()
             try:
                 if connect_ssh_fn is None:
                     raise RuntimeError("未找到 ssh_executor.connect_ssh")
                 try:
-                    ssh_client = connect_ssh_fn(host, port, username, password)
+                    client, remote_sys = connect_ssh_fn(host, port, username, password)
                 except TypeError:
-                    ssh_client = connect_ssh_fn()
-                self.ssh_client = ssh_client
+                    client, remote_sys = connect_ssh_fn()
+                # 保存连接与检测到的系统类型（若检测失败则回退到用户选择）
+                self.ssh_client = client
+                self.remote_system_type = remote_sys or system_type_pref
                 self.lbl_ssh_status.setText(f"SSH: 已连接到 {host}:{port}")
             except Exception as e:
                 self.ssh_client = None
@@ -384,7 +401,8 @@ class MainWindow(QMainWindow):
     def disconnect_ssh(self):
         if self.ssh_client and close_ssh_fn:
             try:
-                close_ssh_fn(self.ssh_client)
+                # ssh_executor.close_ssh 不需要参数
+                close_ssh_fn()
             except Exception:
                 pass
         self.ssh_client = None
@@ -462,7 +480,8 @@ class MainWindow(QMainWindow):
             if self.rb_ssh.isChecked():
                 self.remote_exec_worker = RemoteExecWorker(command, self.remote_system_type or "Linux", ssh_client=self.ssh_client)
                 self.remote_exec_worker.chunk_signal.connect(lambda s: self.terminal.appendPlainText(s))
-                self.remote_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[远程执行结束]\n"))
+                # 将 finished 的文本内容也写入终端，再追加结束标记
+                self.remote_exec_worker.finished_signal.connect(lambda s: self.terminal.appendPlainText((s or "") + "\n[远程执行结束]\n"))
                 self.remote_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[远程执行错误] {e}"))
                 self.remote_exec_worker.start()
             else:
@@ -598,6 +617,7 @@ class MainWindow(QMainWindow):
                     pass
 
         threading.Thread(target=worker, daemon=True).start()
+
 def main():
     app = QApplication(sys.argv)
     win = MainWindow()

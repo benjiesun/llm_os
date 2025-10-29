@@ -165,6 +165,7 @@ def execute_remote_command(command, system_type: str = None, timeout: int = 15, 
                 return f"❌ SSH 连接建立失败：{e}"
 
     try:
+        print("命令*", command,"*")
         stdin, stdout, stderr = ssh_client.exec_command(command, timeout=timeout)
         out = stdout.read().decode("utf-8", errors="ignore").strip()
         err = stderr.read().decode("utf-8", errors="ignore").strip()

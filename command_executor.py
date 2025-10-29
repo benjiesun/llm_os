@@ -62,7 +62,6 @@ def _is_safe_pipeline(command: str) -> bool:
             return False
     return True
 def is_safe_command(command: str, system_type: str = None) -> bool:
-    DANGEROUS_KEYWORDS = load_blacklist(system_type)
     cmd_lower = command.lower()
     for kw in DANGEROUS_KEYWORDS:
         if kw in cmd_lower:

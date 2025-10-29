@@ -533,10 +533,17 @@ class MainWindow(QMainWindow):
                     command = f"./{save_path}"
 
                 self.terminal.appendPlainText(f"🪶 正在执行脚本: {command}\n")
-                self.local_exec_worker = LocalExecWorker(command)
-                self.local_exec_worker.line_signal.connect(lambda ln: self.terminal.appendPlainText(ln))
-                self.local_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[脚本执行结束]\n"))
-                self.local_exec_worker.start()
+                if self.rb_ssh.isChecked():
+                    self.remote_exec_worker = RemoteExecWorker(command, self.remote_system_type or "Linux", ssh_client=self.ssh_client)
+                    self.remote_exec_worker.chunk_signal.connect(lambda s: self.terminal.appendPlainText(s))
+                    self.remote_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[远程脚本执行结束]\n"))
+                    self.remote_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[远程脚本执行错误] {e}"))
+                    self.remote_exec_worker.start()
+                else:
+                    self.local_exec_worker = LocalExecWorker(command)
+                    self.local_exec_worker.line_signal.connect(lambda ln: self.terminal.appendPlainText(ln))
+                    self.local_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[脚本执行结束]\n"))
+                    self.local_exec_worker.start()
 
             else:
                 self.terminal.appendPlainText("✅ 已保存脚本，但未执行。\n")

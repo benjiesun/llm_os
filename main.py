@@ -6,13 +6,18 @@ import subprocess
 import threading
 from functools import partial
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject,QTimer,pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QTimer
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QRadioButton, QButtonGroup,
     QComboBox, QTextEdit, QPlainTextEdit, QMessageBox, QDialog,
     QFormLayout, QSpinBox, QCheckBox, QGroupBox
 )
+
+# 新增：路径与安全转义工具
+import posixpath
+import ntpath
+import shlex
 
 # ----- 尝试导入项目已有模块（按你项目结构来） -----
 try:
@@ -143,6 +148,35 @@ class RemoteExecWorker(QThread):
                 self.finished_signal.emit(str(res))
         except Exception as e:
             self.error_signal.emit(str(e))
+
+# ============== 新增：SFTP 工具（远端创建目录、写入文本） ==============
+def _sftp_mkdirs(sftp, remote_dir: str):
+    # 将路径统一转 POSIX 分隔再逐层创建
+    if not remote_dir:
+        return
+    path = remote_dir.replace("\\", "/")
+    parts = [p for p in path.split("/") if p]
+    cur = "/" if path.startswith("/") else ""
+    for p in parts:
+        nextp = (cur + "/" + p) if cur else ("/" + p if path.startswith("/") else p)
+        try:
+            sftp.stat(nextp)
+        except IOError:
+            sftp.mkdir(nextp)
+        cur = nextp
+
+def sftp_write_text(ssh_client, remote_path: str, content: str):
+    sftp = ssh_client.open_sftp()
+    try:
+        # 统一用 POSIX 切分拿目录
+        dirpath = remote_path.replace("\\", "/")
+        if "/" in dirpath:
+            dir_only = dirpath.rsplit("/", 1)[0]
+            _sftp_mkdirs(sftp, dir_only)
+        with sftp.open(remote_path, "w") as f:
+            f.write(content)
+    finally:
+        sftp.close()
 
 # ----------------- SSH 参数输入对话框 -----------------
 class SSHDialog(QDialog):
@@ -371,10 +405,15 @@ class MainWindow(QMainWindow):
                 if connect_ssh_fn is None:
                     raise RuntimeError("未找到 ssh_executor.connect_ssh")
                 try:
-                    ssh_client = connect_ssh_fn(host, port, username, password)
+                    conn_res = connect_ssh_fn(host, port, username, password)
                 except TypeError:
-                    ssh_client = connect_ssh_fn()
+                    conn_res = connect_ssh_fn()
+                # 兼容返回 (client, remote_system)
+                ssh_client = conn_res[0] if isinstance(conn_res, (list, tuple)) else conn_res
+                detected_sys = (conn_res[1] if isinstance(conn_res, (list, tuple)) and len(conn_res) > 1 else None)
                 self.ssh_client = ssh_client
+                if detected_sys and not self.remote_system_type:
+                    self.remote_system_type = detected_sys
                 self.lbl_ssh_status.setText(f"SSH: 已连接到 {host}:{port}")
             except Exception as e:
                 self.ssh_client = None
@@ -481,7 +520,7 @@ class MainWindow(QMainWindow):
             raw_location = script_block[1].strip() if len(script_block) > 1 else ""
             description = script_block[2].strip() if len(script_block) > 2 else "无描述"
 
-            # --- 自动路径识别 ---
+            # --- 自动路径识别（本地默认；SSH 模式下仅作绝对性判断用） ---
             if raw_location in ["当前路径", "当前目录", "当前文件夹", "."]:
                 location = os.getcwd()
             elif raw_location:
@@ -500,7 +539,7 @@ class MainWindow(QMainWindow):
 
             # --- 展示信息 ---
             self.model_resp.appendPlainText(f"即将生成脚本文件：{filename}")
-            self.model_resp.appendPlainText(f"生成位置：{location}")
+            self.model_resp.appendPlainText(f"生成位置：{raw_location or location}")
             self.model_resp.appendPlainText(f"脚本说明：{description}")
             self.model_resp.appendPlainText("内容预览：\n" + "─" * 40 + f"\n{script_content}\n" + "─" * 40 + "\n")
 
@@ -510,45 +549,97 @@ class MainWindow(QMainWindow):
                 self.terminal.appendPlainText("❎ 已取消脚本生成。\n")
                 return
 
-            os.makedirs(location, exist_ok=True)
+            # 规范扩展名
             if not re.search(r"\.\w+$", filename):
                 filename += ".py"
-            save_path = os.path.join(location, filename)
 
-            try:
-                with open(save_path, "w", encoding="utf-8") as f:
-                    f.write(script_content)
-                self.terminal.appendPlainText(f"✅ 已生成脚本文件: {save_path}\n")
-            except Exception as e:
-                self.terminal.appendPlainText(f"❌ 保存失败: {e}\n")
-                return
+            # ========== SSH 模式：直接写入远端 ==========
+            if self.rb_ssh.isChecked():
+                if not self.ssh_client:
+                    self.terminal.appendPlainText("❌ 远程保存失败：SSH 未连接。\n")
+                    return
 
-            # --- 执行脚本 ---
-            run_now = QMessageBox.question(self, "执行脚本", "是否立即执行该脚本？", QMessageBox.Yes | QMessageBox.No)
-            if run_now == QMessageBox.Yes:
-                if filename.endswith(".py"):
-                    command = f"python3 {save_path}"
-                elif filename.endswith(".sh"):
-                    command = f"bash {save_path}"
+                remote_os = (self.remote_system_type or "Linux").lower()
+                raw_loc = raw_location.strip()
+
+                # 判断绝对路径
+                def is_abs_win(p: str) -> bool:
+                    return bool(re.match(r"^[a-zA-Z]:[\\/]", p)) or p.startswith("\\\\")
+                def is_abs_posix(p: str) -> bool:
+                    return p.startswith("/")
+
+                if "win" in remote_os:
+                    if raw_loc and is_abs_win(raw_loc):
+                        remote_dir = raw_loc
+                    else:
+                        remote_dir = r"C:\\Windows\\Temp\\yandao_os"
+                    remote_path = ntpath.join(remote_dir, filename)
                 else:
-                    command = f"./{save_path}"
+                    if raw_loc and is_abs_posix(raw_loc):
+                        remote_dir = raw_loc
+                    else:
+                        remote_dir = "/tmp/yandao_os"
+                    remote_path = posixpath.join(remote_dir, filename)
 
-                self.terminal.appendPlainText(f"🪶 正在执行脚本: {command}\n")
-                if self.rb_ssh.isChecked():
+                try:
+                    # 用 SFTP 在远端创建文件
+                    sftp_write_text(self.ssh_client, remote_path, script_content)
+                    self.terminal.appendPlainText(f"✅ 已在远端生成脚本: {remote_path}\n")
+                except Exception as e:
+                    self.terminal.appendPlainText(f"❌ 远程保存失败: {e}\n")
+                    return
+
+                # --- 执行脚本（远端） ---
+                run_now = QMessageBox.question(self, "执行脚本", "是否立即执行该脚本？", QMessageBox.Yes | QMessageBox.No)
+                if run_now == QMessageBox.Yes:
+                    if filename.endswith(".py"):
+                        command = f'python "{remote_path}"' if "win" in remote_os else f"python3 {shlex.quote(remote_path)}"
+                    elif filename.endswith(".sh"):
+                        command = f'pwsh -File "{remote_path}"' if "win" in remote_os else f"bash {shlex.quote(remote_path)}"
+                    else:
+                        if "win" in remote_os:
+                            command = f'"{remote_path}"'
+                        else:
+                            command = f"chmod +x {shlex.quote(remote_path)} && {shlex.quote(remote_path)}"
+
+                    self.terminal.appendPlainText(f"🪶 正在远程执行脚本: {command}\n")
                     self.remote_exec_worker = RemoteExecWorker(command, self.remote_system_type or "Linux", ssh_client=self.ssh_client)
                     self.remote_exec_worker.chunk_signal.connect(lambda s: self.terminal.appendPlainText(s))
                     self.remote_exec_worker.finished_signal.connect(lambda s: self.terminal.appendPlainText("\n[远程执行结束]\n" + (s or "")))
-                    # self.remote_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[远程脚本执行结束]\n"))
                     self.remote_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[远程脚本执行错误] {e}"))
                     self.remote_exec_worker.start()
                 else:
+                    self.terminal.appendPlainText("✅ 已在远端保存脚本，但未执行。\n")
+
+            else:
+                # ========== 本地模式：保存到本地 ==========
+                os.makedirs(location, exist_ok=True)
+                save_path = os.path.join(location, filename)
+                try:
+                    with open(save_path, "w", encoding="utf-8") as f:
+                        f.write(script_content)
+                    self.terminal.appendPlainText(f"✅ 已生成脚本文件: {save_path}\n")
+                except Exception as e:
+                    self.terminal.appendPlainText(f"❌ 保存失败: {e}\n")
+                    return
+
+                # --- 执行脚本（本地） ---
+                run_now = QMessageBox.question(self, "执行脚本", "是否立即执行该脚本？", QMessageBox.Yes | QMessageBox.No)
+                if run_now == QMessageBox.Yes:
+                    if filename.endswith(".py"):
+                        command = f"python3 {save_path}"
+                    elif filename.endswith(".sh"):
+                        command = f"bash {save_path}"
+                    else:
+                        command = f"./{save_path}"
+
+                    self.terminal.appendPlainText(f"🪶 正在执行脚本: {command}\n")
                     self.local_exec_worker = LocalExecWorker(command)
                     self.local_exec_worker.line_signal.connect(lambda ln: self.terminal.appendPlainText(ln))
                     self.local_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[脚本执行结束]\n"))
                     self.local_exec_worker.start()
-
-            else:
-                self.terminal.appendPlainText("✅ 已保存脚本，但未执行。\n")
+                else:
+                    self.terminal.appendPlainText("✅ 已保存脚本，但未执行。\n")
 
         # ========== 普通回复 ==========
         elif "REPLY:" in response:
@@ -607,6 +698,7 @@ class MainWindow(QMainWindow):
                     pass
 
         threading.Thread(target=worker, daemon=True).start()
+
 def main():
     app = QApplication(sys.argv)
     win = MainWindow()

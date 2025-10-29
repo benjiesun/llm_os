@@ -462,7 +462,8 @@ class MainWindow(QMainWindow):
             if self.rb_ssh.isChecked():
                 self.remote_exec_worker = RemoteExecWorker(command, self.remote_system_type or "Linux", ssh_client=self.ssh_client)
                 self.remote_exec_worker.chunk_signal.connect(lambda s: self.terminal.appendPlainText(s))
-                self.remote_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[远程执行结束]\n"))
+                self.remote_exec_worker.finished_signal.connect(lambda s: self.terminal.appendPlainText("\n[远程执行结束]\n" + (s or "")))
+                # self.remote_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[远程执行结束]\n"))
                 self.remote_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[远程执行错误] {e}"))
                 self.remote_exec_worker.start()
             else:
@@ -536,7 +537,8 @@ class MainWindow(QMainWindow):
                 if self.rb_ssh.isChecked():
                     self.remote_exec_worker = RemoteExecWorker(command, self.remote_system_type or "Linux", ssh_client=self.ssh_client)
                     self.remote_exec_worker.chunk_signal.connect(lambda s: self.terminal.appendPlainText(s))
-                    self.remote_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[远程脚本执行结束]\n"))
+                    self.remote_exec_worker.finished_signal.connect(lambda s: self.terminal.appendPlainText("\n[远程执行结束]\n" + (s or "")))
+                    # self.remote_exec_worker.finished_signal.connect(lambda _: self.terminal.appendPlainText("\n[远程脚本执行结束]\n"))
                     self.remote_exec_worker.error_signal.connect(lambda e: self.terminal.appendPlainText(f"[远程脚本执行错误] {e}"))
                     self.remote_exec_worker.start()
                 else:
